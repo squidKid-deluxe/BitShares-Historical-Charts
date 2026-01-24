@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BitShares Pool Price Chart</title>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/klinecharts/dist/klinecharts.min.js"></script>
+    <link rel="stylesheet" href="main.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 BitShares <a href="books.html">Pool</a> Price Chart</h1>
+            <p>Historical price data for liquidity pools (Elasticsearch)</p>
+        </div>
+
+        <div class="error-message" id="error-message"></div>
+
+        <div class="controls">
+            <div class="form-group">
+                <label for="pool-id">Pool ID</label>
+                <input 
+                    type="text" 
+                    id="pool-id" 
+                    placeholder="e.g., 1.19.58"
+                    value="1.19.58"
+                >
+                <p class="info-text">Enter a BitShares pool ID</p>
+            </div>
+
+            <div class="form-group">
+                <label for="timeframe">Timeframe</label>
+                <select id="timeframe">
+                    <option value="60">1 minute</option>
+                    <option value="300">5 minutes</option>
+                    <option value="900">15 minutes</option>
+                    <option value="1800">30 minutes</option>
+                    <option value="3600">1 hour</option>
+                    <option value="14400">4 hours</option>
+                    <option value="28800">8 hours</option>
+                    <option value="86400" selected>1 day</option>
+                    <option value="604800">1 week</option>
+                    <option value="2592000">1 month</option>
+                </select>
+                <p class="info-text">Candle timeframe</p>
+            </div>
+
+            <div class="buttons-column">
+                <button class="btn-update" id="load-more-btn" onclick="checkVisibleRange()">Load More</button>
+                <button class="btn-update" id="update-btn">Update</button>
+            </div>
+        </div>
+
+        <div class="chart-container">
+            <div class="loading-overlay" id="loading-overlay">
+                <div class="loading-content">
+                    <p id="loading-text">Loading historical data...</p>
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progress-fill"></div>
+                    </div>
+                    <div class="progress-text" id="progress-text"></div>
+                </div>
+            </div>
+            <div id="kline-container"></div>
+            <div class="chart-info" id="chart-info"></div>
+        </div>
+    </div>
+
+    <script src="graphene-rpc.js"></script>
+    <script src="pools.js"></script>
+    <script src="main.js"></script>
+</body>
+</html>

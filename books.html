@@ -24,7 +24,9 @@
                     id="asset-a" 
                     placeholder="e.g., BTS"
                     value="BTS"
+                    oninput="this.value = this.value.toUpperCase()"
                 >
+                <div class="suggestions-dropdown" id="asset-a-suggestions"></div>
                 <p class="info-text">Base / quote asset</p>
             </div>
 
@@ -35,7 +37,9 @@
                     id="asset-b" 
                     placeholder="e.g., HONEST.USD"
                     value="HONEST.USD"
+                    oninput="this.value = this.value.toUpperCase()"
                 >
+                <div class="suggestions-dropdown" id="asset-b-suggestions"></div>
                 <p class="info-text">The other asset in the pair</p>
             </div>
 
@@ -80,5 +84,6 @@
     <script src="graphene-rpc.js"></script>
     <script src="books.js"></script>
     <script src="main.js"></script>
+    <script src="search-engine.js"></script>
 </body>
 </html>

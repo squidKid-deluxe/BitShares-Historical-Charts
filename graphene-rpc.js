@@ -488,13 +488,12 @@ class GrapheneRPC {
     }
 }
 
-
 /*
- * Manages a single GrapheneRPC connection with automatic failover to other nodes
- * - Connects to only one node at a time
- * - Automatically switches to next node if current one fails
- * - Has built-in node list with automatic failover
- * - Maintains connection health through regular pinging
+ * Async-safe GrapheneRPCPool that handles concurrent requests properly
+ * - Only one connection attempt at a time
+ - Queues requests while connecting/failover
+ * - Safe state management with promises
+ * - Proper error handling for all queued requests
  */
 class GrapheneRPCPool {
     /**
@@ -523,16 +522,22 @@ class GrapheneRPCPool {
         this.currentNodeIndex = 0;
         this.activeInstance = null;
         this.chainId = null;
-        this.meanPing = 0.1; // Default mean ping for latency checks
-        this.nodeHealth = new Map(); // Map<nodeUrl, { lastAttempted, errorCount, lastSuccess }>
-
-        // Initialize node health tracking
+        this.meanPing = 0.1;
+        
+        // Async-safe state management
+        this.connectionLock = null; // Promise that resolves when connection is ready
+        this.connectionQueue = [];  // Queue for requests waiting for connection
+        this.isConnecting = false;  // Flag to prevent multiple connection attempts
+        
+        // Node health tracking
+        this.nodeHealth = new Map();
         this.nodes.forEach(url => {
             this.nodeHealth.set(url, {
                 lastAttempted: 0,
                 errorCount: 0,
                 lastSuccess: 0,
-                latency: Infinity
+                latency: Infinity,
+                consecutiveFailures: 0
             });
         });
 
@@ -550,23 +555,68 @@ class GrapheneRPCPool {
     }
 
     /**
-     * Get or create the active RPC instance
-     * @returns {GrapheneRPC} Active RPC instance
+     * Get or create the active RPC instance - async-safe
+     * @returns {Promise<GrapheneRPC>} Active RPC instance
      */
     async getActiveInstance() {
+        // If we have a healthy connection, return it
         if (this.activeInstance && this.activeInstance.connected) {
             return this.activeInstance;
         }
 
-        // Try to connect to a healthy node
-        return this.connectToNextNode();
+        // If already connecting, wait for the connection to complete
+        if (this.isConnecting) {
+            if (!this.connectionLock) {
+                this.connectionLock = this._createConnectionLock();
+            }
+            await this.connectionLock;
+            return this.activeInstance;
+        }
+
+        // Start connection process
+        return this._connectWithLock();
     }
 
     /**
-     * Connect to the next available node in the list
-     * @returns {Promise<GrapheneRPC>} Connected RPC instance
+     * Create a connection lock promise
+     * @returns {Promise<void>}
      */
-    async connectToNextNode() {
+    _createConnectionLock() {
+        return new Promise((resolve, reject) => {
+            this.connectionQueue.push({ resolve, reject });
+        });
+    }
+
+    /**
+     * Connect with proper locking - only one connection attempt at a time
+     * @returns {Promise<GrapheneRPC>}
+     */
+    async _connectWithLock() {
+        if (this.isConnecting) {
+            return this.getActiveInstance();
+        }
+
+        this.isConnecting = true;
+        this.connectionLock = this._createConnectionLock();
+
+        try {
+            const instance = await this._connectToNextNodeInternal();
+            this._resolveConnectionQueue(instance);
+            return instance;
+        } catch (error) {
+            this._rejectConnectionQueue(error);
+            throw error;
+        } finally {
+            this.isConnecting = false;
+            this.connectionLock = null;
+        }
+    }
+
+    /**
+     * Internal connection method (not async-safe by itself)
+     * @returns {Promise<GrapheneRPC>}
+     */
+    async _connectToNextNodeInternal() {
         if (this.activeInstance) {
             this.activeInstance.close();
             this.activeInstance = null;
@@ -583,22 +633,20 @@ class GrapheneRPCPool {
             console.log(`🔄 Attempting to connect to node ${this.currentNodeIndex + 1}/${this.nodes.length}: ${nodeUrl}`);
             
             try {
-                // Update last attempted time
                 this.nodeHealth.set(nodeUrl, {
                     ...health,
                     lastAttempted: Date.now()
                 });
 
-                // Create new instance and wait for connection
                 this.activeInstance = new GrapheneRPC(nodeUrl, 10000, true);
                 
                 // Wait for connection to establish
                 await this.activeInstance.connectionPromise;
                 
-                // Connection successful - reset error count
                 this.nodeHealth.set(nodeUrl, {
                     ...health,
                     errorCount: 0,
+                    consecutiveFailures: 0,
                     lastSuccess: Date.now(),
                     latency: this.activeInstance.pingLatency
                 });
@@ -610,59 +658,79 @@ class GrapheneRPCPool {
                 lastError = error;
                 console.error(`❌ Failed to connect to ${nodeUrl}:`, error.message);
                 
-                // Update error count
                 this.nodeHealth.set(nodeUrl, {
                     ...health,
-                    errorCount: (health.errorCount || 0) + 1
+                    errorCount: (health.errorCount || 0) + 1,
+                    consecutiveFailures: (health.consecutiveFailures || 0) + 1
                 });
                 
-                // Move to next node
                 this.currentNodeIndex = (this.currentNodeIndex + 1) % this.nodes.length;
                 attempts++;
                 
-                // Wait before trying next node
                 if (attempts < maxAttempts) {
                     await new Promise(resolve => setTimeout(resolve, this.failoverDelay));
                 }
             }
         }
 
-        // All nodes failed
         this.activeInstance = null;
         throw new Error(`Failed to connect to any node after ${maxAttempts} attempts. Last error: ${lastError?.message}`);
     }
 
     /**
-     * Internal method to call a method with failover capability
+     * Resolve all queued connection requests
+     * @param {GrapheneRPC} instance
+     */
+    _resolveConnectionQueue(instance) {
+        const queue = [...this.connectionQueue];
+        this.connectionQueue = [];
+        queue.forEach(({ resolve }) => resolve(instance));
+    }
+
+    /**
+     * Reject all queued connection requests
+     * @param {Error} error
+     */
+    _rejectConnectionQueue(error) {
+        const queue = [...this.connectionQueue];
+        this.connectionQueue = [];
+        queue.forEach(({ reject }) => reject(error));
+    }
+
+    /**
+     * Internal method to call a method with failover capability - async-safe
      * @param {string} method - Method name to call
      * @param {Array} args - Arguments to pass to the method
      */
     async _callWithFailover(method, args) {
         let lastError;
         let retryCount = 0;
+        let currentInstance;
 
         while (retryCount < this.maxRetries) {
             try {
-                const instance = await this.getActiveInstance();
+                // Get a stable instance reference for this attempt
+                currentInstance = await this.getActiveInstance();
                 
-                if (!instance || !instance.connected) {
+                if (!currentInstance || !currentInstance.connected) {
                     throw new Error('No active connection available');
                 }
 
+                const url = currentInstance.url;
+                
                 // Execute the method with timeout
                 const result = await Promise.race([
-                    instance[method](...args),
+                    currentInstance[method](...args),
                     new Promise((_, reject) => 
-                        setTimeout(() => reject(new Error("RPC call timeout")), this.timeoutMs)
+                        setTimeout(() => reject(new Error(`RPC call timeout after ${this.timeoutMs}ms`)), this.timeoutMs)
                     )
                 ]);
                 
-                // Mark this node as healthy
-                const url = instance.url;
+                // Mark node as healthy
                 const health = this.nodeHealth.get(url) || {};
                 this.nodeHealth.set(url, {
                     ...health,
-                    errorCount: 0,
+                    consecutiveFailures: 0,
                     lastSuccess: Date.now()
                 });
                 
@@ -671,26 +739,75 @@ class GrapheneRPCPool {
             } catch (err) {
                 lastError = err;
                 retryCount++;
-                console.error(`❌ Call failed on attempt ${retryCount}:`, err.message);
                 
-                // If connection is lost or node is unresponsive, try next node
-                if (err.message.includes('Not connected') || 
+                // Check if this is a connection-related error
+                const isConnectionError = 
+                    err.message.includes('Not connected') || 
                     err.message.includes('timeout') || 
                     err.message.includes('Connection closed') ||
-                    err.message.includes('WebSocket error')) {
-                    
-                    console.log(`🔄 Connection issue detected, switching to next node...`);
-                    await this.connectToNextNode();
+                    err.message.includes('WebSocket error') ||
+                    err.message.includes('Connection timeout') ||
+                    err.message.includes('failed to connect');
+                
+                console.error(`❌ Call failed on attempt ${retryCount} ${isConnectionError ? '(connection issue)' : ''}:`, err.message);
+                
+                if (isConnectionError) {
+                    // Only trigger failover if this was the current instance
+                    if (currentInstance === this.activeInstance) {
+                        console.log(`🔄 Connection issue detected, triggering failover...`);
+                        await this._triggerFailover(currentInstance);
+                    }
                 }
                 
-                // Wait before retrying
                 if (retryCount < this.maxRetries) {
                     await new Promise(resolve => setTimeout(resolve, this.failoverDelay * retryCount));
                 }
             }
         }
 
-        throw new Error(`RPC call failed after ${this.maxRetries} retries: ${lastError?.message}`);
+        throw new Error(`RPC call failed after ${this.maxRetries} retries: ${lastError?.message || lastError}`);
+    }
+
+    /**
+     * Trigger failover - async-safe
+     * @param {GrapheneRPC} currentInstance - The instance that failed
+     */
+    async _triggerFailover(currentInstance) {
+        // Only failover if this is still the active instance
+        if (currentInstance !== this.activeInstance) {
+            return;
+        }
+
+        console.log('🔄 Starting failover process...');
+        
+        // Mark current node as failed
+        if (currentInstance) {
+            const url = currentInstance.url;
+            const health = this.nodeHealth.get(url) || {};
+            this.nodeHealth.set(url, {
+                ...health,
+                consecutiveFailures: (health.consecutiveFailures || 0) + 1,
+                lastAttempted: Date.now()
+            });
+            
+            // Rotate to next node
+            this.currentNodeIndex = (this.currentNodeIndex + 1) % this.nodes.length;
+        }
+
+        // Close current connection
+        if (this.activeInstance) {
+            this.activeInstance.close();
+            this.activeInstance = null;
+        }
+
+        // Attempt to connect to next node
+        try {
+            await this._connectWithLock();
+            console.log('✅ Failover completed successfully');
+        } catch (error) {
+            console.error('❌ Failover failed:', error.message);
+            throw error;
+        }
     }
 
     /**
@@ -701,6 +818,15 @@ class GrapheneRPCPool {
             this.activeInstance.close();
             this.activeInstance = null;
         }
+        
+        // Reject any pending connection requests
+        if (this.connectionQueue.length > 0) {
+            const error = new Error('Connection closed by user');
+            this._rejectConnectionQueue(error);
+        }
+        
+        this.isConnecting = false;
+        this.connectionLock = null;
         console.log('👋 Connection closed');
     }
 
@@ -714,7 +840,8 @@ class GrapheneRPCPool {
                 connected: false,
                 currentNode: this.currentNodeIndex,
                 currentNodeUrl: this.nodes[this.currentNodeIndex],
-                health: this.nodeHealth.get(this.nodes[this.currentNodeIndex]) || {}
+                health: this.nodeHealth.get(this.nodes[this.currentNodeIndex]) || {},
+                queuedRequests: this.connectionQueue.length
             };
         }
 
@@ -728,16 +855,26 @@ class GrapheneRPCPool {
                 ...health,
                 pingLatency: this.activeInstance.pingLatency,
                 reconnectAttempts: this.activeInstance.reconnectAttempts
-            }
+            },
+            queuedRequests: this.connectionQueue.length
         };
     }
 
     /**
-     * Force switch to the next node
+     * Force switch to the next node - async-safe
      */
     async switchToNextNode() {
+        if (this.isConnecting) {
+            throw new Error('Cannot switch nodes while connection is in progress');
+        }
+
+        if (this.activeInstance) {
+            this.activeInstance.close();
+            this.activeInstance = null;
+        }
+
         this.currentNodeIndex = (this.currentNodeIndex + 1) % this.nodes.length;
-        return this.connectToNextNode();
+        return this._connectWithLock();
     }
 }
 

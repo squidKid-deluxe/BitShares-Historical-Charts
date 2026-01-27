@@ -24,7 +24,9 @@
                     id="pool-id" 
                     placeholder="e.g., 1.19.58"
                     value="1.19.58"
+                    oninput="this.value = this.value.toUpperCase()"
                 >
+                <div class="suggestions-dropdown" id="pool-suggestions"></div>
                 <p class="info-text">Enter a BitShares pool ID</p>
             </div>
 
@@ -69,5 +71,6 @@
     <script src="graphene-rpc.js"></script>
     <script src="pools.js"></script>
     <script src="main.js"></script>
+    <script src="search-engine.js"></script>
 </body>
 </html>

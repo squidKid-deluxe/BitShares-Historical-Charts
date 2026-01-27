@@ -162,8 +162,16 @@ async function updateChart() {
 
         let objects = await rpc.getObjectsByName([assetA, assetB])
 
-        assetA = objects[assetA]["id"]
-        assetB = objects[assetB]["id"]
+        try {
+            assetA = objects[assetA]["id"]
+        } catch {
+            throw new Error('Invalid asset A.');
+        }
+        try {
+            assetB = objects[assetB]["id"]
+        } catch {
+            throw new Error('Invalid asset B.');
+        }
 
         objects = Object.fromEntries(
           Object.values(objects).map(v => [v.id, v])
@@ -178,7 +186,7 @@ async function updateChart() {
         const hits = await getPoolSwaps(assetA, assetB, startTime, now);
 
         if (hits.length === 0) {
-            throw new Error('No trading history found for this pool. Pool may not exist or have no trades.');
+            throw new Error('No trading history found in this timeframe.');
         }
 
         updateProgress(100, `Parsing ${hits.length} trades...`);
@@ -230,14 +238,62 @@ async function updateChart() {
     }
 }
 
-
-function update(e) {
-    if (e.key === 'Enter') {
+function update(event, element) {
+    if (event.key === 'Enter') {
         let startTime = parseInt(new Date().getTime() - (90 * 24 * 60 * 60 * 1000));
         updateChart();
     }
+    
+    // Update suggestions dropdown
+    updateSuggestions(element);
 }
 
-document.getElementById('asset-a').addEventListener('keypress', update);
+function updateSuggestions(element) {
+    const suggestions = searchForAsset(element.value);
+    const dropdownId = element.id === 'asset-a' ? 'asset-a-suggestions' : 'asset-b-suggestions';
+    const dropdown = document.getElementById(dropdownId);
+    
+    // Clear existing suggestions
+    dropdown.innerHTML = '';
+    
+    // Only show suggestions if we have results and input has content
+    if (suggestions.length > 0 && element.value.trim() !== '') {
+        dropdown.style.display = 'block';
+        
+        // Create suggestion items
+        suggestions.forEach(suggestion => { // Limit to 10 suggestions
+            const suggestionItem = document.createElement('div');
+            suggestionItem.className = 'suggestion-item';
+            suggestionItem.textContent = suggestion;
+            suggestionItem.addEventListener('click', () => {
+                element.value = suggestion;
+                dropdown.style.display = 'none';
+                // Trigger update as if Enter was pressed
+                update({key: 'Enter'}, element);
+            });
+            dropdown.appendChild(suggestionItem);
+        });
+    } else {
+        dropdown.style.display = 'none';
+    }
+}
 
-document.getElementById('asset-b').addEventListener('keypress', update);
+function setupEventListeners() {
+    const assetA = document.getElementById('asset-a');
+    const assetB = document.getElementById('asset-b');
+    
+    assetA.addEventListener('keyup', e => update(e, assetA));
+    assetB.addEventListener('keyup', e => update(e, assetB));
+    
+    // Hide dropdowns when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!assetA.contains(e.target) && !document.getElementById('asset-a-suggestions').contains(e.target)) {
+            document.getElementById('asset-a-suggestions').style.display = 'none';
+        }
+        if (!assetB.contains(e.target) && !document.getElementById('asset-b-suggestions').contains(e.target)) {
+            document.getElementById('asset-b-suggestions').style.display = 'none';
+        }
+    });
+}
+
+setupEventListeners();

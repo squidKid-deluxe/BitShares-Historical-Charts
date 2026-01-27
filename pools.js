@@ -152,8 +152,12 @@ async function updateChart() {
 
     try {
         const poolData = await rpc.getObjects([poolId]);
-        const assetA = poolData[poolId]["asset_a"];
-        const assetB = poolData[poolId]["asset_b"];
+        try {
+            assetA = poolData[poolId]["asset_a"];
+            assetB = poolData[poolId]["asset_b"];
+        } catch {
+            throw new Error('Invalid pool ID.');
+        }
         const objects = await rpc.getObjects([assetA, assetB]);
 
         const timeframeSeconds = parseInt(document.getElementById('timeframe').value);
@@ -165,7 +169,7 @@ async function updateChart() {
         const hits = await getPoolSwaps(poolId, startTime, now);
 
         if (hits.length === 0) {
-            throw new Error('No trading history found for this pool. Pool may not exist or have no trades.');
+            throw new Error('No trading history found in this timeframe.');
         }
 
         updateProgress(100, `Parsing ${hits.length} trades...`);
@@ -219,9 +223,61 @@ async function updateChart() {
 }
 
 
-document.getElementById('pool-id').addEventListener('keypress', (e) => {
-    if (e.key === 'Enter') {
+
+function update(event, element) {
+    if (event.key === 'Enter') {
         let startTime = parseInt(new Date().getTime() - (90 * 24 * 60 * 60 * 1000));
         updateChart();
     }
-});
+    
+    // Update suggestions dropdown
+    updateSuggestions(element);
+}
+
+function updateSuggestions(element) {
+    let suggestions = searchForPool(element.value);
+    suggestions.sort((a, b) => {
+        return a.length-b.length;
+    });
+
+    const dropdown = document.getElementById('pool-suggestions');
+    
+    // Clear existing suggestions
+    dropdown.innerHTML = '';
+    
+    // Only show suggestions if we have results and input has content
+    if (suggestions.length > 0 && element.value.trim() !== '') {
+        dropdown.style.display = 'block';
+        
+        // Create suggestion items
+        suggestions.forEach(suggestion => { // Limit to 10 suggestions
+            const suggestionItem = document.createElement('div');
+            suggestionItem.className = 'suggestion-item';
+            suggestionItem.innerHTML = `<span style="font-family:mono">${suggestion}</span> - ${poolList[suggestion][0]}:${poolList[suggestion][1]}`;
+            suggestionItem.addEventListener('click', () => {
+                element.value = suggestion;
+                dropdown.style.display = 'none';
+                // Trigger update as if Enter was pressed
+                update({key: 'Enter'}, element);
+            });
+            dropdown.appendChild(suggestionItem);
+        });
+    } else {
+        dropdown.style.display = 'none';
+    }
+}
+
+function setupEventListeners() {
+    const poolIdElement = document.getElementById('pool-id');
+    
+    poolIdElement.addEventListener('keyup', e => update(e, poolIdElement));
+    
+    // Hide dropdowns when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!poolIdElement.contains(e.target) && !document.getElementById('pool-suggestions').contains(e.target)) {
+            document.getElementById('pool-suggestions').style.display = 'none';
+        }
+    });
+}
+
+setupEventListeners();

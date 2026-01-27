@@ -3,7 +3,10 @@ const ELASTICSEARCH_URL = 'https://es.bitshares.dev/bitshares-*/_search';
 
 let loadingCandles = false;
 let chart = null;
-let rpc = new GrapheneRPCPool();
+var objectCache = {};
+var assetList = [];
+var poolList = {};
+var rpc = new GrapheneRPCPool();
 let candles;
 let startTime = parseInt(new Date().getTime() - (90 * 24 * 60 * 60 * 1000));
 

@@ -271,3 +271,66 @@ body {
 a {
     color: #8888ff;
 }
+
+.suggestions-dropdown {
+    scroll-behavior: smooth;
+    position: absolute;
+    width: 100%;
+    background: #252e4a;
+    border: 1px solid #3a4a7a;
+    border-radius: 8px;
+    margin-top: 75px;
+    z-index: 1000;
+    display: none;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.suggestion-item {
+    padding: 10px 15px;
+    cursor: pointer;
+    border-bottom: 1px solid #3a4a7a;
+    transition: all 0.2s ease;
+    color: #e0e0ff;
+    font-size: 0.95em;
+}
+
+.suggestion-item:hover {
+    background: linear-gradient(135deg, #5a67d8 0%, #6b46c1 100%);
+    color: white;
+}
+
+.suggestion-item:last-child {
+    border-bottom: none;
+}
+
+/* Adjust form-group to accommodate dropdown */
+.form-group {
+    position: relative;
+    margin-bottom: 30px; /* Extra space for dropdown */
+}
+
+/* Hide dropdown when input is empty */
+input:placeholder-shown + .suggestions-dropdown {
+    display: none;
+}
+
+/* Scrollbar styling for suggestions */
+.suggestions-dropdown::-webkit-scrollbar {
+    width: 8px;
+}
+
+.suggestions-dropdown::-webkit-scrollbar-track {
+    background: #1a233a;
+    border-radius: 4px;
+}
+
+.suggestions-dropdown::-webkit-scrollbar-thumb {
+    background: #5a67d8;
+    border-radius: 4px;
+}
+
+.suggestions-dropdown::-webkit-scrollbar-thumb:hover {
+    background: #6b46c1;
+}

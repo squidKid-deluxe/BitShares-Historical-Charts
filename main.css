@@ -9,12 +9,17 @@ body {
     background: linear-gradient(135deg, #0f1a2d 0%, #1a2a4a 100%);
     min-height: 100vh;
     padding: 20px;
+    padding-top: 0px;
+    padding-bottom: 0px;
     color: #e0e0e0;
 }
 
 .container {
     max-width: 1400px;
+    height: 100vh;
     margin: 0 auto;
+    display:flex;
+    flex-direction: column;
 }
 
 .header {
@@ -92,6 +97,7 @@ body {
     font-size: 1em;
     font-weight: 600;
     cursor: pointer;
+    width:100%;
     transition: all 0.3s ease;
     box-shadow: 0 4px 15px rgba(90, 103, 216, 0.4);
 }
@@ -117,15 +123,17 @@ body {
     padding: 20px;
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
     min-height: 600px;
+    flex-grow: 1;
     display: flex;
     flex-direction: column;
     position: relative;
     border: 1px solid #2d375a;
+    margin-bottom: 20px;
 }
 
 #kline-container {
     flex: 1;
-    min-height: 600px;
+    flex-grow: 1;
 }
 
 .loading-overlay {
@@ -195,6 +203,9 @@ body {
     border-left: 4px solid #f87171;
     display: none;
     border: 1px solid #3a2a3a;
+    position: fixed;
+    top: 10px;
+    left: 10px;
 }
 
 .error-message.active {
@@ -209,6 +220,7 @@ body {
 
 .chart-info {
     padding-top: 15px;
+    padding-bottom: 10px;
     border-top: 1px solid #3a4a7a;
     color: #a0a0c0;
     font-size: 0.9em;
@@ -224,11 +236,11 @@ body {
     }
 
     #kline-container {
-        min-height: 400px;
+        /*min-height: 400px;*/
     }
 
     .chart-container {
-        min-height: 400px;
+        /*min-height: 400px;*/
     }
 }
 
@@ -237,6 +249,7 @@ body {
     flex-direction: column;
     gap: 12px;
     align-self: end;     /* keeps buttons aligned to the bottom like before */
+    width: 100%;
 }
 
 #load-more-btn {
@@ -256,7 +269,7 @@ body {
 }
 /* Make the controls grid friendly with 3+ columns */
 .controls {
-    grid-template-columns: 1fr 1fr 1fr auto;   /* was 1fr 1fr auto */
+    grid-template-columns: 1fr 1fr auto;   /* was 1fr 1fr auto */
     gap: 20px;
     align-items: end;
 }
@@ -333,4 +346,39 @@ input:placeholder-shown + .suggestions-dropdown {
 
 .suggestions-dropdown::-webkit-scrollbar-thumb:hover {
     background: #6b46c1;
+}
+
+.bitshares-logo {
+    position: fixed;
+    bottom: 30px;
+    left: 20px;
+    filter: opacity(50%);
+}
+
+.nav-container {
+    background: #1a233a;
+    border-radius: 12px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.4);
+    margin-bottom:20px;
+    display: flex;
+    flex-direction: row;
+    position: relative;
+    border: 1px solid #2d375a;
+}
+
+.btn-nav {
+    text-align: center;
+    text-decoration: none;
+    background: linear-gradient(135deg, #5a67d8 0%, #6b46c1 100%);
+    color: white;
+    border: none;
+    padding: 12px 30px;
+    margin: 20px;
+    border-radius: 6px;
+    font-size: 1em;
+    font-weight: 600;
+    cursor: pointer;
+    width:100%;
+    transition: all 0.3s ease;
+    box-shadow: 0 4px 15px rgba(90, 103, 216, 0.4);
 }

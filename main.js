@@ -47,7 +47,6 @@ function updateProgress(percent, text = '') {
     }
 }
 
-// Initialize KLineChart - FIXED
 async function initChart() {
     // Properly dispose existing chart if it exists
     if (chart) {
@@ -58,7 +57,7 @@ async function initChart() {
     // Initialize new chart
     chart = klinecharts.init('kline-container');
 
-    // Set style options using CORRECT method and structure
+    // Set style options
     chart.setStyles({
         grid: {
             show: true,
@@ -74,6 +73,20 @@ async function initChart() {
             }
         }
     });
+
+
+    // Create the volume indicator in a separate pane
+    chart.createIndicator(
+      {
+        name: "VOL",        // built-in volume indicator
+        calcParams: [],     // no parameters needed
+        shortName: "Volume"
+      },
+      false,               // `false` to not overlay on candles
+      {
+        series: "volume",   // indicate that this is a volume type
+      }
+    );
 
     return chart;
 }
@@ -164,7 +177,113 @@ function tradesToCandles(trades, timeframeSeconds) {
     return allCandles;
 }
 
-let prevFrom = -1;
+
+function renderChart(candles, assetA, assetB) {
+    const timeframeSeconds = parseInt(document.getElementById('timeframe').value);
+    const timeframeLabel = {
+        60: 'minute',
+        300: '5-minute',
+        900: '15-minute',
+        1800: '30-minute',
+        3600: 'hourly',
+        14400: '4-hour',
+        28800: '8-hour',
+        86400: 'daily',
+        604800: 'weekly',
+        2592000: 'monthly'
+    } [timeframeSeconds] || timeframeSeconds + 's';
+
+    chart.applyNewData(candles);
+
+    const priceRange = `${Math.min(...candles.map(c => c.low)).toFixed(8)} - ${Math.max(...candles.map(c => c.high)).toFixed(8)}`;
+
+    document.getElementById('chart-info').innerHTML = `
+        <strong>${assetA}:${assetB}</strong> | ${candles.length} ${timeframeLabel} candles
+    `
+}
+
+// Elasticsearch pagination wrapper - handles all the boilerplate
+async function queryElasticsearchWithPagination(queryBuilder, startMs, stopMs, maxTotalResults = 1000000) {
+    const CHUNK_SIZE = 10000;
+    let allResults = [];
+    let lastSortValue = null;
+    let hasMore = true;
+    let totalFetched = 0;
+
+    while (hasMore && totalFetched < maxTotalResults && loadingCandles) {
+        // Call the query builder with current pagination state
+        const query = queryBuilder(lastSortValue);
+
+        try {
+            const response = await fetch(ELASTICSEARCH_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(query)
+            });
+
+            if (!response.ok) {
+                throw new Error(`Elasticsearch error: ${response.statusText}`);
+            }
+
+            const data = await response.json();
+
+            if (!lastSortValue && data.hits.total.value === 0) {
+                return [];
+            }
+
+            const currentResults = data.hits.hits || [];
+            allResults = allResults.concat(currentResults);
+            totalFetched += currentResults.length;
+
+            if (currentResults.length < CHUNK_SIZE || totalFetched >= maxTotalResults) {
+                hasMore = false;
+            } else {
+                lastSortValue = currentResults[currentResults.length - 1].sort;
+            }
+
+            if (lastSortValue) {
+                updateProgress((1 - ((lastSortValue[0] - startMs) / (stopMs - startMs))) * 100, 'Querying Elasticsearch...');
+            }
+        } catch (error) {
+            throw new Error('Failed to fetch from Elasticsearch: ' + error.message);
+        }
+    }
+
+    return allResults;
+}
+
+
+// Generic suggestion updater
+function updateSuggestionsDropdown(inputElement, suggestionsElement, suggestions, rawSuggestions) {
+    suggestionsElement.innerHTML = '';
+
+    if (suggestions.length > 0 && inputElement.value.trim() !== '') {
+        suggestionsElement.style.display = 'block';
+
+        suggestions.forEach((suggestion, idx) => {
+            const item = document.createElement('div');
+            item.className = 'suggestion-item';
+            item.innerHTML = suggestion;
+            item.addEventListener('click', () => {
+                inputElement.value = rawSuggestions ? rawSuggestions[idx] : suggestion;
+                suggestionsElement.style.display = 'none';
+                updateChart();
+            });
+            suggestionsElement.appendChild(item);
+        });
+    } else {
+        suggestionsElement.style.display = 'none';
+    }
+}
+
+// Generic click-outside handler
+function setupClickOutsideHandler(inputElement, suggestionsElement) {
+    document.addEventListener('click', (e) => {
+        if (!inputElement.contains(e.target) && !suggestionsElement.contains(e.target)) {
+            suggestionsElement.style.display = 'none';
+        }
+    });
+}
 
 function checkVisibleRange() {
     const timeframe = parseInt(document.getElementById('timeframe').value)
@@ -172,12 +291,43 @@ function checkVisibleRange() {
     updateChart();
 }
 
-// Event listeners
-document.getElementById('update-btn').addEventListener('click', updateChart);
+function update(event, element) {
+    if (event.key === 'Enter') {
+        startTime = parseInt(new Date().getTime() - (90 * 24 * 60 * 60 * 1000));
+        updateChart();
+        return;
+    }
+
+    // Update suggestions dropdown
+    updateSuggestions(element);
+}
+
+function resetStartTime() {
+    startTime = parseInt(new Date().getTime() - (90 * 24 * 60 * 60 * 1000));
+    updateChart();
+    loadingCandles = false;
+    return;
+}
+
+async function startup() {
+    // Wait for search engine to initialize
+    console.log("Waiting for index...")
+    while (!assetList.length) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    console.log("Index initialized.")
 
 
-// Initialize on load
-window.addEventListener('load', () => {
+    let prevFrom = -1;
+
+    // Event listeners
+    document.getElementById('update-btn').addEventListener('click', updateChart);
+
+
+    setupEventListeners();
+
     initChart();
     updateChart(); // Load default pool
-});
+}
+
+startup();

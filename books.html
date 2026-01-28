@@ -6,15 +6,21 @@
     <title>BitShares Order Book History</title>
     <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/klinecharts/dist/klinecharts.min.js"></script>
     <link rel="stylesheet" href="main.css">
+    <style>
+        .controls {
+            grid-template-columns: 1fr 1fr 1fr auto;
+        }
+    </style>
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <h1>📈 BitShares <a href="index.html">Order Book</a> History</h1>
-            <p>Historical mid-price / spread / depth candles (from order books)</p>
-        </div>
-
+        <img src="bitshares.png" class="bitshares-logo" width=100px>
         <div class="error-message" id="error-message"></div>
+        <div class="nav-container">
+            <a class="btn-nav" href="index.html">Pool charts</a>
+            <a class="btn-nav" href="books.html">Book charts</a>
+            <a class="btn-nav">Both 🚧</a>
+        </div>
 
         <div class="controls">
             <div class="form-group">
@@ -61,6 +67,7 @@
             </div>
 
             <div class="buttons-column">
+                <button class="btn-update" onclick="resetStartTime()">Reset / Cancel</button>
                 <button class="btn-update" id="load-more-btn" onclick="checkVisibleRange()">Load More</button>
                 <button class="btn-update" id="update-btn">Update</button>
             </div>
@@ -82,8 +89,8 @@
     </div>
 
     <script src="graphene-rpc.js"></script>
-    <script src="books.js"></script>
     <script src="main.js"></script>
+    <script src="books.js"></script>
     <script src="search-engine.js"></script>
 </body>
 </html>

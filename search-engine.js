@@ -43,21 +43,25 @@ async function getNewest(type = "pool") {
         throw new Error('Failed to fetch from Elasticsearch: ' + error.message);
     }
 
-    return [latest, parseInt(latest.split(".")[2])];
+    return parseInt(latest.split(".")[2]);
 }
 
 async function loadDataIndex() {
-    const [latestPoolId, latestPoolIndex] = await getNewest("pool");
-    const [latestAssetId, latestAssetIndex] = await getNewest("asset");
+
+    setLoading(true, 'Fetching latest assets...', 0);
+    const latestPoolIndex = await getNewest("pool");
+    const latestAssetIndex = await getNewest("asset");
 
     if (localStorage.getItem('objectCache')) {
         objectCache = JSON.parse(localStorage.getItem('objectCache'));
     }
 
+    updateProgress(5, 'Waiting for RPC...');
     // Wait for main thread to start an rpc instance
     while (!rpc) {
         await new Promise(resolve => setTimeout(resolve, 100));
     }
+    updateProgress(20, 'Gathering pool objects...');
 
     const knownPoolIndex = Object.keys(objectCache).length ? Math.max(
         ...Object.keys(objectCache)
@@ -67,6 +71,8 @@ async function loadDataIndex() {
     const allIds = Array.from({ length: latestPoolIndex + 2 - knownPoolIndex }, (_, i) => `1.19.${i + knownPoolIndex}`);
     const validIds = await rpc.getObjects(allIds);
 
+
+    updateProgress(40, 'Gathering asset objects...');
     const knownAssetIndex = Object.keys(objectCache).length ? Math.max(
         ...Object.keys(objectCache)
             .filter(key => key.startsWith("1.3."))
@@ -74,6 +80,8 @@ async function loadDataIndex() {
     ) : 0;
     const objectsToGet = Array.from({ length: latestAssetIndex + 2 - knownAssetIndex }, (_, i) => `1.3.${i + knownAssetIndex}`);
     const fetchedIds = { ...validIds, ...await rpc.getObjects(objectsToGet) };
+
+    updateProgress(90, 'Parsing data...');
 
     const newCache = Object.fromEntries(
       Object.entries(fetchedIds).map(([key, value]) => {
@@ -116,12 +124,18 @@ async function loadDataIndex() {
             poolList[object.id] = [objectCache[object.asset_a].symbol, objectCache[object.asset_b].symbol];
         }
     }
+    setLoading(false);
 }
 
 function searchForAsset(searchTerm) {
     let results = [];
+    if (!searchTerm.includes(" ")) {
+        searchTerm = [searchTerm];
+    } else {
+        searchTerm = searchTerm.split(" ");
+    }
     for (asset of assetList) {
-        if (asset.includes(searchTerm)) {
+        if (searchTerm.every(term => asset.includes(term))) {
             results.push(asset);
         }
     }

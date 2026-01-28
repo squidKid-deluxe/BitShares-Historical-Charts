@@ -9,12 +9,13 @@
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <h1>📊 BitShares <a href="books.html">Pool</a> Price Chart</h1>
-            <p>Historical price data for liquidity pools (Elasticsearch)</p>
-        </div>
-
+        <img src="bitshares.png" class="bitshares-logo" width=100px>
         <div class="error-message" id="error-message"></div>
+        <div class="nav-container">
+            <a class="btn-nav" href="index.html">Pool charts</a>
+            <a class="btn-nav" href="books.html">Book charts</a>
+            <a class="btn-nav">Both 🚧</a>
+        </div>
 
         <div class="controls">
             <div class="form-group">
@@ -48,6 +49,7 @@
             </div>
 
             <div class="buttons-column">
+                <button class="btn-update" onclick="resetStartTime()">Reset / Cancel</button>
                 <button class="btn-update" id="load-more-btn" onclick="checkVisibleRange()">Load More</button>
                 <button class="btn-update" id="update-btn">Update</button>
             </div>

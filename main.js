@@ -71,21 +71,29 @@ async function initChart() {
                 size: 1,
                 color: '#EDEDED'
             }
-        }
-    });
-
-
+        },
+        candle: {
+            type: 'candle_solid',
+            bar: {
+                upColor: '#30de24',
+                downColor: '#ff231f',
+                upBorderColor: '#30de24',
+                downBorderColor: '#ff231f',
+                upWickColor: '#30de24',
+                downWickColor: '#ff231f'
+            }
+        },
+    })
     // Create the volume indicator in a separate pane
-    chart.createIndicator(
-      {
-        name: "VOL",        // built-in volume indicator
-        calcParams: [],     // no parameters needed
-        shortName: "Volume"
-      },
-      false,               // `false` to not overlay on candles
-      {
-        series: "volume",   // indicate that this is a volume type
-      }
+    chart.createIndicator({
+            name: "VOL", // built-in volume indicator
+            calcParams: [], // no parameters needed
+            shortName: "Volume"
+        },
+        false, // `false` to not overlay on candles
+        {
+            series: "volume", // indicate that this is a volume type
+        }
     );
 
     return chart;

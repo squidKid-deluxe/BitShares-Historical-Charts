@@ -48,6 +48,7 @@ class GrapheneRPC {
             const timer = setTimeout(() => {
                 if (!this.connected) {
                     this.ws.close();
+                    this.connectionPromise = null;
                     this.handleConnectionError(new Error(`Connection timeout after ${this.timeout} ms`));
                     reject(new Error(`GrapheneRPC: Connection timeout after ${this.timeout} ms`));
                 }
@@ -61,9 +62,17 @@ class GrapheneRPC {
                 this.lastPingTime = Date.now();
 
                 // Send queued messages
+                const failedMessages = [];
                 while (this.queue.length) {
-                    this.ws.send(this.queue.shift());
+                    const msg = this.queue.shift();
+                    try {
+                        this.ws.send(msg);
+                    } catch (sendError) {
+                        failedMessages.push(msg);
+                    }
                 }
+                // Re-queue failed messages for retry
+                this.queue.unshift(...failedMessages);
                 
                 // Start auto-ping if enabled
                 if (this.autoPing) {
@@ -80,6 +89,7 @@ class GrapheneRPC {
 
             this.ws.onerror = (err) => {
                 clearTimeout(timer);
+                this.connectionPromise = null;
                 this.handleConnectionError(err);
                 reject(new Error(`GrapheneRPC: WebSocket error: ${err.message || err}`));
             };
@@ -115,14 +125,15 @@ class GrapheneRPC {
             }
 
             try {
-                // Record ping start time
-                this.lastPingTime = Date.now();
+                // Record ping start time locally
+                const pingStart = Date.now();
+                this.lastPingTime = pingStart;
                 
                 // Ping with get_objects for dynamic global properties (2.8.0)
                 await this.getObjects(["2.8.0"]);
                 
                 // Update latency
-                this.pingLatency = Date.now() - this.lastPingTime;
+                this.pingLatency = Date.now() - pingStart;
                 console.log(`🏓 Ping successful to ${this.url} - Latency: ${this.pingLatency}ms`);
                 
             } catch (error) {
@@ -201,6 +212,7 @@ class GrapheneRPC {
             this.ws.close();
         }
         this.connected = false;
+        this.connectionPromise = null;
     }
 
     query(api, params) {
@@ -218,11 +230,24 @@ class GrapheneRPC {
                 id: requestId,
             });
 
+            let timeoutId = null;
+            let settled = false;
+
+            const cleanup = () => {
+                if (timeoutId) {
+                    clearTimeout(timeoutId);
+                    timeoutId = null;
+                }
+                this.ws.removeEventListener("message", listener);
+            };
+
             const listener = (event) => {
                 try {
                     const response = JSON.parse(event.data);
                     if (response.id === requestId) {
-                        this.ws.removeEventListener("message", listener);
+                        if (settled) return;
+                        settled = true;
+                        cleanup();
                         if ("result" in response) {
                             resolve(response.result);
                         } else {
@@ -230,28 +255,26 @@ class GrapheneRPC {
                         }
                     }
                 } catch (parseError) {
-                    console.error('Error parsing response:', parseError);
-                    reject(parseError);
+                    if (!settled) {
+                        settled = true;
+                        cleanup();
+                        reject(parseError);
+                    }
                 }
             };
 
             this.ws.addEventListener("message", listener);
 
             // Set timeout for this specific request
-            const timeoutId = setTimeout(() => {
-                this.ws.removeEventListener("message", listener);
-                reject(new Error("Request timeout"));
+            timeoutId = setTimeout(() => {
+                if (!settled) {
+                    settled = true;
+                    cleanup();
+                    reject(new Error("Request timeout"));
+                }
             }, this.timeout);
 
             this.ws.send(payload);
-
-            // Clean up timeout when request completes
-            const cleanup = () => {
-                clearTimeout(timeoutId);
-                this.ws.removeEventListener("message", listener);
-            };
-
-            // We can't directly hook into the promise resolution here, so we'll rely on the listener cleanup
         });
     }
 
@@ -319,16 +342,18 @@ class GrapheneRPC {
      * Uses: cache.account_name
      */
     async rpcAccountBalances(cache, assetIds, assetPrecisions) {
-        if (!assetIds.includes("1.3.0")) {
-            assetIds.push("1.3.0");
-            assetPrecisions.push(5);
+        const ids = [...assetIds];
+        const precs = [...assetPrecisions];
+        if (!ids.includes("1.3.0")) {
+            ids.push("1.3.0");
+            precs.push(5);
         }
-        const ret = await this.query("database", ["get_named_account_balances", [cache.account_name, assetIds]]);
-        const balances = Object.fromEntries(assetIds.map(id => [id, 0]));
-        for (let i = 0; i < assetIds.length; i++) {
+        const ret = await this.query("database", ["get_named_account_balances", [cache.account_name, ids]]);
+        const balances = Object.fromEntries(ids.map(id => [id, 0]));
+        for (let i = 0; i < ids.length; i++) {
             for (const balance of ret) {
-                if (balance.asset_id === assetIds[i]) {
-                    balances[assetIds[i]] += parseFloat(balance.amount) / Math.pow(10, assetPrecisions[i]);
+                if (balance.asset_id === ids[i]) {
+                    balances[ids[i]] += parseFloat(balance.amount) / Math.pow(10, precs[i]);
                 }
             }
         }
@@ -436,7 +461,10 @@ class GrapheneRPC {
         const ret = await this.query("database", ["get_full_accounts", [
             [cache.account_name], false
         ]]);
-        const limitOrders = (ret[0][1] && ret[0][1].limit_orders) || [];
+        if (!ret || !ret[0] || !ret[0][1]) {
+            return [];
+        }
+        const limitOrders = ret[0][1].limit_orders || [];
         const orders = [];
 
         for (const order of limitOrders) {
@@ -523,6 +551,9 @@ class GrapheneRPCPool {
         this.activeInstance = null;
         this.chainId = null;
         this.meanPing = 0.1;
+        this.lastFailoverTime = 0;
+        this.failoverDebounceMs = options.failoverDebounceMs || 5000; // Minimum ms between failovers
+        this.connectionTime = 0; // Track when we connected
         
         // Async-safe state management
         this.connectionLock = null; // Promise that resolves when connection is ready
@@ -651,6 +682,7 @@ class GrapheneRPCPool {
                     latency: this.activeInstance.pingLatency
                 });
                 
+                this.connectionTime = Date.now();
                 console.log(`✅ Successfully connected to ${nodeUrl}`);
                 return this.activeInstance;
                 
@@ -718,11 +750,16 @@ class GrapheneRPCPool {
 
                 const url = currentInstance.url;
                 
+                // Use longer timeout for initial requests after connection (warmup period)
+                const timeSinceConnection = Date.now() - this.connectionTime;
+                const isWarmup = timeSinceConnection < 5000; // First 5 seconds
+                const effectiveTimeout = isWarmup ? Math.max(this.timeoutMs, 8000) : this.timeoutMs;
+                
                 // Execute the method with timeout
                 const result = await Promise.race([
                     currentInstance[method](...args),
                     new Promise((_, reject) => 
-                        setTimeout(() => reject(new Error(`RPC call timeout after ${this.timeoutMs}ms`)), this.timeoutMs)
+                        setTimeout(() => reject(new Error(`RPC call timeout after ${effectiveTimeout}ms`)), effectiveTimeout)
                     )
                 ]);
                 
@@ -741,13 +778,14 @@ class GrapheneRPCPool {
                 retryCount++;
                 
                 // Check if this is a connection-related error
+                // Note: RPC call timeouts alone don't trigger failover - we check if connection is actually dead
                 const isConnectionError = 
                     err.message.includes('Not connected') || 
-                    err.message.includes('timeout') || 
                     err.message.includes('Connection closed') ||
                     err.message.includes('WebSocket error') ||
                     err.message.includes('Connection timeout') ||
-                    err.message.includes('failed to connect');
+                    err.message.includes('failed to connect') ||
+                    (err.message.includes('timeout') && currentInstance && !currentInstance.connected);
                 
                 console.error(`❌ Call failed on attempt ${retryCount} ${isConnectionError ? '(connection issue)' : ''}:`, err.message);
                 
@@ -778,6 +816,19 @@ class GrapheneRPCPool {
             return;
         }
 
+        // Prevent concurrent failovers
+        if (this.isConnecting) {
+            return;
+        }
+
+        // Debounce: don't failover if we just did one recently
+        const timeSinceLastFailover = Date.now() - this.lastFailoverTime;
+        if (timeSinceLastFailover < this.failoverDebounceMs) {
+            console.log(`⏱️ Skipping failover - last failover was ${timeSinceLastFailover}ms ago (debounce: ${this.failoverDebounceMs}ms)`);
+            return;
+        }
+
+        this.lastFailoverTime = Date.now();
         console.log('🔄 Starting failover process...');
         
         // Mark current node as failed
@@ -827,6 +878,8 @@ class GrapheneRPCPool {
         
         this.isConnecting = false;
         this.connectionLock = null;
+        this.connectionTime = 0;
+        this.lastFailoverTime = 0;
         console.log('👋 Connection closed');
     }
 

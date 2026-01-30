@@ -3,9 +3,55 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>BitShares Pool Price Chart</title>
-    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/klinecharts/dist/klinecharts.min.js"></script>
+    <title>BitShares All Pools vs Orderbook Comparison</title>
+    <script type="text/javascript" src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
     <link rel="stylesheet" href="main.css">
+    <style>
+        .controls {
+            grid-template-columns: 1fr 1fr 1fr auto;
+        }
+        .plotly-chart {
+            width: 100%;
+            height: 600px;
+            background: #1a1a1a;
+            border-radius: 8px;
+        }
+        .chart-info {
+            margin-top: 10px;
+            padding: 10px;
+            background: #2a2a2a;
+            border-radius: 4px;
+            color: #fff;
+            font-size: 14px;
+        }
+        .legend-container {
+            max-height: 200px;
+            overflow-y: auto;
+            margin-top: 10px;
+            padding: 10px;
+            background: #2a2a2a;
+            border-radius: 4px;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #fff;
+            font-size: 12px;
+            margin-bottom: 4px;
+        }
+        .legend-color {
+            width: 20px;
+            height: 3px;
+            border-radius: 2px;
+            flex-shrink: 0;
+        }
+        .pool-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
+    </style>
 </head>
 <body>
     <div class="container">
@@ -19,16 +65,29 @@
 
         <div class="controls">
             <div class="form-group">
-                <label for="pool-id">Pool ID</label>
+                <label for="asset-a">Asset A (base)</label>
                 <input 
                     type="text" 
-                    id="pool-id" 
-                    placeholder="e.g., 1.19.58"
-                    value="1.19.58"
+                    id="asset-a" 
+                    placeholder="e.g., BTS"
+                    value="BTS"
                     oninput="this.value = this.value.toUpperCase()"
                 >
-                <div class="suggestions-dropdown" id="pool-suggestions"></div>
-                <p class="info-text">Enter a BitShares pool ID</p>
+                <div class="suggestions-dropdown" id="asset-a-suggestions"></div>
+                <p class="info-text">Base / quote asset</p>
+            </div>
+
+            <div class="form-group">
+                <label for="asset-b">Asset B (quote)</label>
+                <input 
+                    type="text" 
+                    id="asset-b" 
+                    placeholder="e.g., HONEST.USD"
+                    value="HONEST.USD"
+                    oninput="this.value = this.value.toUpperCase()"
+                >
+                <div class="suggestions-dropdown" id="asset-b-suggestions"></div>
+                <p class="info-text">The other asset in the pair</p>
             </div>
 
             <div class="form-group">
@@ -65,14 +124,19 @@
                     <div class="progress-text" id="progress-text"></div>
                 </div>
             </div>
-            <div id="kline-container"></div>
+            <div id="plotly-chart" class="plotly-chart"></div>
+            <div class="legend-container" id="legend-container">
+                <div class="pool-legend" id="pool-legend"></div>
+            </div>
             <div class="chart-info" id="chart-info"></div>
         </div>
     </div>
 
     <script src="graphene-rpc.js"></script>
-    <script src="pools.js"></script>
     <script src="main.js"></script>
+    <script src="pools.js"></script>
+    <script src="books.js"></script>
+    <script src="both.js"></script>
     <script src="search-engine.js"></script>
 </body>
 </html>

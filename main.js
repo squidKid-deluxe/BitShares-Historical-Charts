@@ -326,8 +326,6 @@ async function startup() {
     console.log("Index initialized.")
 
 
-    let prevFrom = -1;
-
     // Event listeners
     document.getElementById('update-btn').addEventListener('click', updateChart);
 
